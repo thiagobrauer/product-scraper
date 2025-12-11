@@ -2,8 +2,8 @@
 from typing import Optional
 
 from src.core.dependencies.log_interface import LogInterface
-from src.core.modules.products.scrape_product.gateways.browser_gateway import (
-    BrowserGateway,
+from src.core.modules.products.scrape_product.gateways.ecommerce_gateway import (
+    EcommerceGateway,
 )
 from src.core.modules.products.scrape_product.gateways.product_repository_gateway import (
     ProductRepositoryGateway,
@@ -44,32 +44,40 @@ class ScrapeProductUseCase:
     """
     Use case for scraping product details from an e-commerce website.
 
-    This use case orchestrates the following actions:
+    This use case is platform-agnostic and orchestrates the following actions:
     1. Navigate to the search page with the given query
     2. Find the first product link in search results
     3. Navigate to the product page
     4. Extract all product details
     5. Save product to repository (if provided)
 
-    Dependencies are injected through the constructor following
-    hexagonal architecture principles.
+    The platform-specific logic is delegated to the EcommerceGateway,
+    allowing this use case to work with any e-commerce platform.
     """
 
     def __init__(
         self,
-        browser_gateway: BrowserGateway,
+        ecommerce_gateway: EcommerceGateway,
         log: LogInterface,
         product_repository: Optional[ProductRepositoryGateway] = None,
     ):
-        self.browser_gateway = browser_gateway
+        """
+        Initialize the use case with required dependencies.
+
+        Args:
+            ecommerce_gateway: Platform-specific adapter for e-commerce operations
+            log: Logger for tracking progress
+            product_repository: Optional repository for persisting products
+        """
+        self.ecommerce = ecommerce_gateway
         self.log = log
         self.product_repository = product_repository
 
-        # Initialize actions with the browser gateway
-        self.navigate_to_search = NavigateToSearchAction(browser_gateway)
-        self.find_product_link = FindProductLinkAction(browser_gateway)
-        self.navigate_to_product = NavigateToProductAction(browser_gateway)
-        self.extract_product_details = ExtractProductDetailsAction(browser_gateway)
+        # Initialize actions with the ecommerce gateway and logger
+        self.navigate_to_search = NavigateToSearchAction(ecommerce_gateway, log)
+        self.find_product_link = FindProductLinkAction(ecommerce_gateway, log)
+        self.navigate_to_product = NavigateToProductAction(ecommerce_gateway, log)
+        self.extract_product_details = ExtractProductDetailsAction(ecommerce_gateway, log)
 
     def apply(self, input_data: ScrapeProductInput) -> ScrapeProductResponse:
         """
@@ -85,29 +93,24 @@ class ScrapeProductUseCase:
         try:
             self.log.info(
                 "Starting product scrape",
-                {"query": input_data.query, "base_url": input_data.base_url},
+                {
+                    "platform": self.ecommerce.platform_name,
+                    "query": input_data.query,
+                },
             )
 
             # Step 1: Navigate to search page
-            self.log.info("Navigating to search page", {"query": input_data.query})
-            self.navigate_to_search.apply(input_data.base_url, input_data.query)
+            self.navigate_to_search.apply(input_data.query)
 
             # Step 2: Find product link in search results
-            self.log.info("Finding product link in search results")
-            product_link = self.find_product_link.apply(
-                input_data.base_url, input_data.query
-            )
-
-            self.log.info("Found product link", {"link": product_link})
+            product_link = self.find_product_link.apply(input_data.query)
 
             # Step 3: Navigate to product page
-            self.log.info("Navigating to product page")
             self.navigate_to_product.apply(
                 product_link, save_debug_files=input_data.save_debug_files
             )
 
             # Step 4: Extract product details
-            self.log.info("Extracting product details")
             product = self.extract_product_details.apply()
 
             # Step 5: Save to repository if available

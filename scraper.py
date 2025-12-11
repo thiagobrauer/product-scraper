@@ -3,6 +3,9 @@ E-commerce Web Scraper Orchestrator
 
 This script orchestrates the product scraping use case using hexagonal architecture.
 It wires together the infrastructure adapters and invokes the use case.
+
+The scraper is platform-agnostic - to add support for a new e-commerce site,
+create a new adapter implementing the EcommerceGateway protocol.
 """
 
 import json
@@ -21,6 +24,9 @@ from src.core.modules.products.scrape_product.responses.scrape_product_success i
 )
 from src.infrastructure.adapters.products.scrape_product.playwright_browser_adapter import (
     PlaywrightBrowserAdapter,
+)
+from src.infrastructure.adapters.products.scrape_product.riachuelo_ecommerce_adapter import (
+    RiachueloEcommerceAdapter,
 )
 from src.infrastructure.adapters.products.scrape_product.postgres_product_repository_adapter import (
     PostgresProductRepositoryAdapter,
@@ -52,7 +58,7 @@ def get_product_repository(logger):
 
 def main():
     """Main entry point for the scraper."""
-    print("Riachuelo E-commerce Scraper")
+    print("E-commerce Product Scraper")
     print("=" * 40)
 
     product_code = "15247848"
@@ -67,12 +73,16 @@ def main():
         page = context.new_page()
 
         try:
-            # Create adapters
+            # Create browser adapter
             browser_adapter = PlaywrightBrowserAdapter(page)
+
+            # Create platform-specific e-commerce adapter
+            # To support other platforms, create a different adapter here
+            ecommerce_adapter = RiachueloEcommerceAdapter(browser_adapter)
 
             # Create and execute use case
             use_case = ScrapeProductUseCase(
-                browser_gateway=browser_adapter,
+                ecommerce_gateway=ecommerce_adapter,
                 log=logger,
                 product_repository=product_repository,
             )

@@ -1,32 +1,22 @@
 """Action to find the first product link in search results."""
-from typing import Optional
-
-from src.core.modules.products.scrape_product.gateways.browser_gateway import (
-    BrowserGateway,
-)
-from src.core.modules.products.scrape_product.exceptions.product_not_found_exception import (
-    ProductNotFoundException,
+from src.core.dependencies.log_interface import LogInterface
+from src.core.modules.products.scrape_product.gateways.ecommerce_gateway import (
+    EcommerceGateway,
 )
 
 
 class FindProductLinkAction:
     """Find the first product link from search results."""
 
-    PRODUCT_SELECTORS = [
-        "#showcase ol > li a[href]",
-        "[data-testid='open-product-recommendation']",
-        "a[href*='riachuelo']",
-    ]
+    def __init__(self, ecommerce_gateway: EcommerceGateway, log: LogInterface):
+        self.ecommerce = ecommerce_gateway
+        self.log = log
 
-    def __init__(self, browser_gateway: BrowserGateway):
-        self.browser_gateway = browser_gateway
-
-    def apply(self, base_url: str, query: str) -> str:
+    def apply(self, query: str) -> str:
         """
         Find and return the URL of the first product in search results.
 
         Args:
-            base_url: The base URL for building absolute URLs
             query: The search query (for error messages)
 
         Returns:
@@ -35,13 +25,7 @@ class FindProductLinkAction:
         Raises:
             ProductNotFoundException: If no product is found
         """
-        for selector in self.PRODUCT_SELECTORS:
-            element = self.browser_gateway.query_selector(selector)
-            if element:
-                href = self.browser_gateway.get_element_attribute(element, "href")
-                if href:
-                    # Convert to absolute URL if needed
-                    url = href if href.startswith("http") else f"{base_url}{href}"
-                    return url
-
-        raise ProductNotFoundException(query)
+        self.log.info("Finding product link in search results")
+        product_link = self.ecommerce.find_product_link(query)
+        self.log.info("Found product link", {"link": product_link})
+        return product_link
