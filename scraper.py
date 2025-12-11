@@ -6,6 +6,7 @@ It wires together the infrastructure adapters and invokes the use case.
 """
 
 import json
+import os
 
 from playwright.sync_api import sync_playwright
 
@@ -20,6 +21,9 @@ from src.core.modules.products.scrape_product.responses.scrape_product_success i
 )
 from src.infrastructure.adapters.products.scrape_product.playwright_browser_adapter import (
     PlaywrightBrowserAdapter,
+)
+from src.infrastructure.adapters.products.scrape_product.postgres_product_repository_adapter import (
+    PostgresProductRepositoryAdapter,
 )
 from src.infrastructure.adapters.console_logger_adapter import ConsoleLoggerAdapter
 
@@ -36,6 +40,16 @@ def create_browser_context(playwright):
     return browser, context
 
 
+def get_product_repository(logger):
+    """Create product repository if database URL is configured."""
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        logger.info("Database configured, enabling persistence")
+        return PostgresProductRepositoryAdapter(database_url)
+    logger.info("No DATABASE_URL configured, running without persistence")
+    return None
+
+
 def main():
     """Main entry point for the scraper."""
     print("Riachuelo E-commerce Scraper")
@@ -46,6 +60,7 @@ def main():
 
     # Create infrastructure dependencies
     logger = ConsoleLoggerAdapter()
+    product_repository = get_product_repository(logger)
 
     with sync_playwright() as playwright:
         browser, context = create_browser_context(playwright)
@@ -59,6 +74,7 @@ def main():
             use_case = ScrapeProductUseCase(
                 browser_gateway=browser_adapter,
                 log=logger,
+                product_repository=product_repository,
             )
 
             input_data = ScrapeProductInput(

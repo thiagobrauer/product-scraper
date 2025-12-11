@@ -1,7 +1,12 @@
 """Use case for scraping product information from e-commerce website."""
+from typing import Optional
+
 from src.core.dependencies.log_interface import LogInterface
 from src.core.modules.products.scrape_product.gateways.browser_gateway import (
     BrowserGateway,
+)
+from src.core.modules.products.scrape_product.gateways.product_repository_gateway import (
+    ProductRepositoryGateway,
 )
 from src.core.modules.products.scrape_product.inputs.scrape_product_input import (
     ScrapeProductInput,
@@ -44,14 +49,21 @@ class ScrapeProductUseCase:
     2. Find the first product link in search results
     3. Navigate to the product page
     4. Extract all product details
+    5. Save product to repository (if provided)
 
     Dependencies are injected through the constructor following
     hexagonal architecture principles.
     """
 
-    def __init__(self, browser_gateway: BrowserGateway, log: LogInterface):
+    def __init__(
+        self,
+        browser_gateway: BrowserGateway,
+        log: LogInterface,
+        product_repository: Optional[ProductRepositoryGateway] = None,
+    ):
         self.browser_gateway = browser_gateway
         self.log = log
+        self.product_repository = product_repository
 
         # Initialize actions with the browser gateway
         self.navigate_to_search = NavigateToSearchAction(browser_gateway)
@@ -97,6 +109,12 @@ class ScrapeProductUseCase:
             # Step 4: Extract product details
             self.log.info("Extracting product details")
             product = self.extract_product_details.apply()
+
+            # Step 5: Save to repository if available
+            if self.product_repository:
+                self.log.info("Saving product to database", {"sku": product.sku})
+                self.product_repository.save(product)
+                self.log.info("Product saved successfully")
 
             self.log.info(
                 "Product scrape completed successfully",
