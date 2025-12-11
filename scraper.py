@@ -136,6 +136,23 @@ class RiachueloScraper:
 
         print(f"Product page URL: {self.page.url}")
 
+        # Scroll down to load any lazy-loaded content
+        self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        self.page.wait_for_timeout(1000)
+
+        # Try to expand product info sections if they exist
+        try:
+            # Look for expandable sections with product info
+            expand_buttons = self.page.query_selector_all("[aria-expanded='false'], button[class*='expand'], button[class*='accordion']")
+            for btn in expand_buttons[:3]:  # Limit to first 3 to avoid clicking too many
+                try:
+                    btn.click()
+                    self.page.wait_for_timeout(500)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         # Save screenshot for debugging
         self.page.screenshot(path="product_page.png")
         print("Screenshot saved to product_page.png")
@@ -294,10 +311,21 @@ class RiachueloScraper:
         if not color and name and " - " in name:
             color = name.split(" - ")[-1].strip()
 
-        # Extract category
+        # Extract category from JSON-LD or breadcrumbs
         category = None
         if json_ld_data and "category" in json_ld_data:
             category = json_ld_data["category"]
+        if not category:
+            # Try to extract from breadcrumbs
+            breadcrumbs = self.page.query_selector_all("nav[aria-label='breadcrumb'] a")
+            if breadcrumbs:
+                category_parts = []
+                for bc in breadcrumbs[1:]:  # Skip "Home"
+                    text = bc.inner_text().strip()
+                    if text:
+                        category_parts.append(text)
+                if category_parts:
+                    category = " > ".join(category_parts)
 
         # Extract material from description
         material = None
@@ -315,6 +343,28 @@ class RiachueloScraper:
                 specifications["GTIN"] = json_ld_data["gtin13"]
             if "mpn" in json_ld_data:
                 specifications["MPN"] = json_ld_data["mpn"]
+
+        # Extract specifications from product-info-header table
+        info_header = self.page.query_selector("#product-info-header")
+        if info_header:
+            # Look for table rows or key-value pairs
+            rows = info_header.query_selector_all("tr")
+            for row in rows:
+                cells = row.query_selector_all("td, th")
+                if len(cells) >= 2:
+                    key = cells[0].inner_text().strip().rstrip(":")
+                    value = cells[1].inner_text().strip()
+                    if key and value:
+                        specifications[key] = value
+            # Also try looking for dl/dt/dd pattern
+            if not rows:
+                dts = info_header.query_selector_all("dt")
+                dds = info_header.query_selector_all("dd")
+                for dt, dd in zip(dts, dds):
+                    key = dt.inner_text().strip().rstrip(":")
+                    value = dd.inner_text().strip()
+                    if key and value:
+                        specifications[key] = value
 
         return Product(
             name=name or "Unknown Product",
