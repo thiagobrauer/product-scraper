@@ -1,0 +1,130 @@
+"""Use case for scraping product information from e-commerce website."""
+from src.core.dependencies.log_interface import LogInterface
+from src.core.modules.products.scrape_product.gateways.browser_gateway import (
+    BrowserGateway,
+)
+from src.core.modules.products.scrape_product.inputs.scrape_product_input import (
+    ScrapeProductInput,
+)
+from src.core.modules.products.scrape_product.responses.scrape_product_response import (
+    ScrapeProductResponse,
+)
+from src.core.modules.products.scrape_product.responses.scrape_product_success import (
+    ScrapeProductSuccess,
+)
+from src.core.modules.products.scrape_product.responses.scrape_product_error import (
+    ScrapeProductError,
+)
+from src.core.modules.products.scrape_product.actions.navigate_to_search_action import (
+    NavigateToSearchAction,
+)
+from src.core.modules.products.scrape_product.actions.find_product_link_action import (
+    FindProductLinkAction,
+)
+from src.core.modules.products.scrape_product.actions.navigate_to_product_action import (
+    NavigateToProductAction,
+)
+from src.core.modules.products.scrape_product.actions.extract_product_details_action import (
+    ExtractProductDetailsAction,
+)
+from src.core.modules.products.scrape_product.exceptions.product_not_found_exception import (
+    ProductNotFoundException,
+)
+from src.core.modules.products.scrape_product.exceptions.navigation_exception import (
+    NavigationException,
+)
+
+
+class ScrapeProductUseCase:
+    """
+    Use case for scraping product details from an e-commerce website.
+
+    This use case orchestrates the following actions:
+    1. Navigate to the search page with the given query
+    2. Find the first product link in search results
+    3. Navigate to the product page
+    4. Extract all product details
+
+    Dependencies are injected through the constructor following
+    hexagonal architecture principles.
+    """
+
+    def __init__(self, browser_gateway: BrowserGateway, log: LogInterface):
+        self.browser_gateway = browser_gateway
+        self.log = log
+
+        # Initialize actions with the browser gateway
+        self.navigate_to_search = NavigateToSearchAction(browser_gateway)
+        self.find_product_link = FindProductLinkAction(browser_gateway)
+        self.navigate_to_product = NavigateToProductAction(browser_gateway)
+        self.extract_product_details = ExtractProductDetailsAction(browser_gateway)
+
+    def apply(self, input_data: ScrapeProductInput) -> ScrapeProductResponse:
+        """
+        Execute the product scraping use case.
+
+        Args:
+            input_data: Input containing the search query and configuration
+
+        Returns:
+            ScrapeProductSuccess with the product data on success,
+            ScrapeProductError with error details on failure
+        """
+        try:
+            self.log.info(
+                "Starting product scrape",
+                {"query": input_data.query, "base_url": input_data.base_url},
+            )
+
+            # Step 1: Navigate to search page
+            self.log.info("Navigating to search page", {"query": input_data.query})
+            self.navigate_to_search.apply(input_data.base_url, input_data.query)
+
+            # Step 2: Find product link in search results
+            self.log.info("Finding product link in search results")
+            product_link = self.find_product_link.apply(
+                input_data.base_url, input_data.query
+            )
+
+            self.log.info("Found product link", {"link": product_link})
+
+            # Step 3: Navigate to product page
+            self.log.info("Navigating to product page")
+            self.navigate_to_product.apply(
+                product_link, save_debug_files=input_data.save_debug_files
+            )
+
+            # Step 4: Extract product details
+            self.log.info("Extracting product details")
+            product = self.extract_product_details.apply()
+
+            self.log.info(
+                "Product scrape completed successfully",
+                {"product_name": product.name, "sku": product.sku},
+            )
+
+            return ScrapeProductSuccess(product=product)
+
+        except ProductNotFoundException as e:
+            self.log.error("Product not found", {"query": e.query})
+            return ScrapeProductError(
+                error_type="product_not_found",
+                message=str(e),
+                query=input_data.query,
+            )
+
+        except NavigationException as e:
+            self.log.error("Navigation failed", {"url": e.url, "reason": e.reason})
+            return ScrapeProductError(
+                error_type="navigation_error",
+                message=str(e),
+                query=input_data.query,
+            )
+
+        except Exception as e:
+            self.log.error("Unexpected error during scrape", {"error": str(e)})
+            return ScrapeProductError(
+                error_type="unexpected_error",
+                message=str(e),
+                query=input_data.query,
+            )
