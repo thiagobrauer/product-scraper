@@ -1,0 +1,43 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: scraper-app
+    environment:
+      - DATABASE_URL=postgresql://scraper:scraper123@db:5432/scraper_db
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./:/app
+    networks:
+      - scraper-network
+
+  db:
+    image: postgres:16-alpine
+    container_name: scraper-db
+    environment:
+      - POSTGRES_USER=scraper
+      - POSTGRES_PASSWORD=scraper123
+      - POSTGRES_DB=scraper_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scraper -d scraper_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - scraper-network
+
+networks:
+  scraper-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
