@@ -8,8 +8,9 @@ The scraper is platform-agnostic - to add support for a new e-commerce site,
 create a new adapter implementing the EcommerceGateway protocol.
 """
 
-import json
+import csv
 import os
+from typing import List
 
 from playwright.sync_api import sync_playwright
 
@@ -34,6 +35,79 @@ from src.infrastructure.adapters.products.scrape_product.postgres_product_reposi
 from src.infrastructure.adapters.console_logger_adapter import ConsoleLoggerAdapter
 
 
+SEARCH_TERMS_FILE = "search-terms.csv"
+
+
+def load_search_terms(filepath: str = SEARCH_TERMS_FILE) -> List[str]:
+    """Load search terms from CSV file."""
+    terms = []
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            next(reader)  # Skip header row
+            for row in reader:
+                if row and row[0].strip():
+                    terms.append(row[0].strip())
+    except FileNotFoundError:
+        print(f"Warning: {filepath} not found. No predefined search terms available.")
+    return terms
+
+
+def display_menu(search_terms: List[str]) -> List[str]:
+    """Display interactive menu and return selected queries."""
+    print("\n" + "=" * 50)
+    print("AVAILABLE SEARCH TERMS")
+    print("=" * 50)
+
+    for i, term in enumerate(search_terms, 1):
+        print(f"  {i:2}. {term}")
+
+    print("\n" + "-" * 50)
+    print("OPTIONS:")
+    print("  a   - Scrape ALL products")
+    print("  1-N - Scrape a specific product (enter the number)")
+    print("  c   - Enter a CUSTOM search term")
+    print("  q   - Quit")
+    print("-" * 50)
+
+    while True:
+        choice = input("\nYour choice: ").strip().lower()
+
+        if choice == "q":
+            return []
+
+        if choice == "a":
+            return search_terms
+
+        if choice == "c":
+            custom_term = input("Enter custom search term: ").strip()
+            if custom_term:
+                return [custom_term]
+            print("Invalid input. Please enter a search term.")
+            continue
+
+        # Try to parse as number or range
+        try:
+            # Check for range (e.g., "1-5")
+            if "-" in choice:
+                parts = choice.split("-")
+                start = int(parts[0])
+                end = int(parts[1])
+                if 1 <= start <= len(search_terms) and 1 <= end <= len(search_terms):
+                    return search_terms[start - 1 : end]
+                print(f"Invalid range. Please enter numbers between 1 and {len(search_terms)}.")
+                continue
+
+            # Single number
+            num = int(choice)
+            if 1 <= num <= len(search_terms):
+                return [search_terms[num - 1]]
+            print(f"Invalid number. Please enter a number between 1 and {len(search_terms)}.")
+
+        except ValueError:
+            print("Invalid input. Please enter a number, 'a' for all, 'c' for custom, or 'q' to quit.")
+
+
 def create_browser_context(playwright):
     """Create a browser context with realistic settings."""
     browser = playwright.firefox.launch(headless=True)
@@ -56,13 +130,98 @@ def get_product_repository(logger):
     return None
 
 
+def scrape_products(queries: List[str], use_case: ScrapeProductUseCase) -> dict:
+    """
+    Scrape multiple products and return results summary.
+
+    Returns:
+        Dictionary with 'success' and 'failed' lists
+    """
+    results = {"success": [], "failed": []}
+
+    total = len(queries)
+    for i, query in enumerate(queries, 1):
+        print(f"\n{'=' * 50}")
+        print(f"SCRAPING {i}/{total}: {query}")
+        print("=" * 50)
+
+        input_data = ScrapeProductInput(
+            query=query,
+            save_debug_files=False,
+        )
+
+        response = use_case.apply(input_data)
+
+        if isinstance(response, ScrapeProductSuccess):
+            product = response.product
+            results["success"].append({
+                "query": query,
+                "name": product.name,
+                "sku": product.sku,
+                "price": product.price,
+            })
+            print(f"\n✓ Success: {product.name}")
+            print(f"  SKU: {product.sku} | Price: {product.price}")
+        else:
+            results["failed"].append({
+                "query": query,
+                "error": response.error_type,
+                "message": response.message,
+            })
+            print(f"\n✗ Failed: {response.error_type}")
+            print(f"  {response.message}")
+
+    return results
+
+
+def print_summary(results: dict):
+    """Print a summary of scraping results."""
+    print("\n" + "=" * 50)
+    print("SCRAPING SUMMARY")
+    print("=" * 50)
+
+    success_count = len(results["success"])
+    failed_count = len(results["failed"])
+    total = success_count + failed_count
+
+    print(f"\nTotal: {total} | Success: {success_count} | Failed: {failed_count}")
+
+    if results["success"]:
+        print("\n✓ SUCCESSFUL:")
+        for item in results["success"]:
+            print(f"  - {item['query']}: {item['name']} ({item['price']})")
+
+    if results["failed"]:
+        print("\n✗ FAILED:")
+        for item in results["failed"]:
+            print(f"  - {item['query']}: {item['error']}")
+
+
 def main():
     """Main entry point for the scraper."""
-    print("E-commerce Product Scraper")
-    print("=" * 40)
+    print("=" * 50)
+    print("E-COMMERCE PRODUCT SCRAPER")
+    print("=" * 50)
 
-    product_code = "15247848"
-    print(f"\nSearching for product: {product_code}")
+    # Load search terms from CSV
+    search_terms = load_search_terms()
+
+    if not search_terms:
+        print("\nNo search terms found. Please add terms to search-terms.csv")
+        print("or enter a custom search term.")
+        custom = input("\nEnter a search term (or 'q' to quit): ").strip()
+        if not custom or custom.lower() == "q":
+            print("Goodbye!")
+            return
+        queries = [custom]
+    else:
+        queries = display_menu(search_terms)
+
+    if not queries:
+        print("\nNo queries selected. Goodbye!")
+        return
+
+    print(f"\nWill scrape {len(queries)} product(s)")
 
     # Create infrastructure dependencies
     logger = ConsoleLoggerAdapter()
@@ -77,32 +236,20 @@ def main():
             browser_adapter = PlaywrightBrowserAdapter(page)
 
             # Create platform-specific e-commerce adapter
-            # To support other platforms, create a different adapter here
             ecommerce_adapter = RiachueloEcommerceAdapter(browser_adapter)
 
-            # Create and execute use case
+            # Create use case
             use_case = ScrapeProductUseCase(
                 ecommerce_gateway=ecommerce_adapter,
                 log=logger,
                 product_repository=product_repository,
             )
 
-            input_data = ScrapeProductInput(
-                query=product_code,
-                save_debug_files=True,
-            )
+            # Scrape all selected products
+            results = scrape_products(queries, use_case)
 
-            response = use_case.apply(input_data)
-
-            # Handle response
-            if isinstance(response, ScrapeProductSuccess):
-                print("\n" + "=" * 40)
-                print("PRODUCT DETAILS")
-                print("=" * 40)
-                print(json.dumps(response.product.to_dict(), indent=2, ensure_ascii=False))
-            else:
-                print(f"\nError: {response.error_type}")
-                print(f"Message: {response.message}")
+            # Print summary
+            print_summary(results)
 
         finally:
             context.close()
