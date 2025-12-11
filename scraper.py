@@ -24,8 +24,15 @@ class Product:
     original_price: Optional[str] = None
     description: Optional[str] = None
     image_url: Optional[str] = None
+    images: Optional[List[str]] = None
     url: Optional[str] = None
     sku: Optional[str] = None
+    brand: Optional[str] = None
+    category: Optional[str] = None
+    color: Optional[str] = None
+    sizes: Optional[List[str]] = None
+    material: Optional[str] = None
+    specifications: Optional[dict] = None
     enriched_data: Optional[dict] = None
 
 
@@ -74,16 +81,16 @@ class RiachueloScraper:
         if self.playwright:
             self.playwright.stop()
 
-    def search_product(self, query: str) -> List[Product]:
+    def search_and_get_product(self, query: str) -> Optional[Product]:
         """
-        Search for a product on Riachuelo by navigating to the homepage
-        and using the search field.
+        Search for a product on Riachuelo and navigate to the first result
+        to extract detailed product information.
 
         Args:
             query: The search term (e.g., product code like "15247848")
 
         Returns:
-            List of Product objects found in search results
+            Product object with detailed information, or None if not found
         """
         # First, go to the homepage to establish a session
         print(f"Navigating to homepage: {self.BASE_URL}")
@@ -93,63 +100,10 @@ class RiachueloScraper:
         print("Waiting for homepage to load...")
         self.page.wait_for_timeout(3000)
 
-        # Find and click the search input
-        print("Looking for search field...")
-        search_selectors = [
-            "input[type='search']",
-            "input[placeholder*='busca']",
-            "input[placeholder*='Busca']",
-            "input[name='q']",
-            "[data-testid='search-input']",
-            "input[class*='search']",
-            "input[class*='Search']",
-        ]
-
-        search_input = None
-        for selector in search_selectors:
-            search_input = self.page.query_selector(selector)
-            if search_input:
-                print(f"Found search input with selector: {selector}")
-                break
-
-        if not search_input:
-            # Try clicking on a search icon first
-            print("Search input not found directly, looking for search button/icon...")
-            search_buttons = [
-                "button[aria-label*='search']",
-                "button[aria-label*='busca']",
-                "[data-testid='search-button']",
-                "[class*='search'] button",
-                "[class*='Search'] button",
-                "svg[class*='search']",
-            ]
-            for selector in search_buttons:
-                btn = self.page.query_selector(selector)
-                if btn:
-                    print(f"Found search button with selector: {selector}")
-                    btn.click()
-                    self.page.wait_for_timeout(1000)
-                    # Now try to find the input again
-                    for input_selector in search_selectors:
-                        search_input = self.page.query_selector(input_selector)
-                        if search_input:
-                            break
-                    break
-
-        if search_input:
-            print(f"Typing search query: {query}")
-            search_input.click()
-            search_input.fill(query)
-            self.page.wait_for_timeout(500)
-
-            # Press Enter to search
-            search_input.press("Enter")
-            print("Search submitted, waiting for results...")
-        else:
-            # Fallback: navigate directly to search URL
-            print("Could not find search input, navigating directly to search URL...")
-            search_url = f"{self.SEARCH_URL}?q={query}"
-            self.page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
+        # Navigate directly to search URL (more reliable)
+        print(f"Searching for: {query}")
+        search_url = f"{self.SEARCH_URL}?q={query}"
+        self.page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
 
         # Wait for navigation/results
         try:
@@ -160,22 +114,251 @@ class RiachueloScraper:
         # Give extra time for dynamic content
         self.page.wait_for_timeout(3000)
 
-        print(f"Current URL: {self.page.url}")
+        print(f"Search results URL: {self.page.url}")
+
+        # Find the first product link and click it
+        product_link = self._get_first_product_link()
+        if not product_link:
+            print("No products found in search results")
+            return None
+
+        # Navigate to the product page
+        print(f"Navigating to product page: {product_link}")
+        self.page.goto(product_link, wait_until="domcontentloaded", timeout=60000)
+
+        # Wait for the product page to load
+        try:
+            self.page.wait_for_load_state("networkidle", timeout=15000)
+        except Exception:
+            print("Network idle timeout, continuing anyway...")
+
+        self.page.wait_for_timeout(3000)
+
+        print(f"Product page URL: {self.page.url}")
 
         # Save screenshot for debugging
-        self.page.screenshot(path="search_results.png")
-        print("Screenshot saved to search_results.png")
+        self.page.screenshot(path="product_page.png")
+        print("Screenshot saved to product_page.png")
 
         # Save HTML for debugging
         html_content = self.page.content()
-        with open("search_results.html", "w", encoding="utf-8") as f:
+        with open("product_page.html", "w", encoding="utf-8") as f:
             f.write(html_content)
-        print("HTML saved to search_results.html")
+        print("HTML saved to product_page.html")
 
-        # Extract products from search results
-        products = self._extract_search_results()
+        # Extract detailed product information
+        product = self._extract_product_details()
 
-        return products
+        return product
+
+    def _get_first_product_link(self) -> Optional[str]:
+        """Get the URL of the first product in search results."""
+        # Try to find product links
+        product_selectors = [
+            "#showcase ol > li a[href]",
+            "[data-testid='open-product-recommendation']",
+            "a[href*='riachuelo']",
+        ]
+
+        for selector in product_selectors:
+            link = self.page.query_selector(selector)
+            if link:
+                href = link.get_attribute("href")
+                if href:
+                    url = href if href.startswith("http") else f"{self.BASE_URL}{href}"
+                    print(f"Found product link: {url}")
+                    return url
+
+        return None
+
+    def _extract_product_details(self) -> Product:
+        """Extract detailed product information from the product page."""
+        import re
+
+        # First, try to extract structured data from JSON-LD
+        json_ld_data = self._extract_json_ld()
+
+        # Extract product name
+        name = None
+        if json_ld_data:
+            name = json_ld_data.get("name")
+        if not name:
+            name_selectors = ["h1", "[data-testid='product-name']", "[class*='ProductName']"]
+            for selector in name_selectors:
+                elem = self.page.query_selector(selector)
+                if elem:
+                    name = elem.inner_text().strip()
+                    if name:
+                        break
+
+        # Extract current price from JSON-LD or page
+        price = None
+        if json_ld_data:
+            # First try direct offers (for Product type)
+            if "offers" in json_ld_data:
+                offers = json_ld_data["offers"]
+                if isinstance(offers, dict):
+                    price_value = offers.get("price") or offers.get("lowPrice")
+                    if price_value:
+                        price = f"R${price_value}"
+                elif isinstance(offers, list) and offers:
+                    price_value = offers[0].get("price")
+                    if price_value:
+                        price = f"R${price_value}"
+            # For ProductGroup, get price from first variant
+            if not price and "hasVariant" in json_ld_data:
+                variants = json_ld_data["hasVariant"]
+                if isinstance(variants, list) and variants:
+                    first_variant = variants[0]
+                    if "offers" in first_variant:
+                        offers = first_variant["offers"]
+                        if isinstance(offers, dict):
+                            price_value = offers.get("price")
+                            if price_value:
+                                price = f"R${price_value}"
+
+        # Extract original price (listPrice from JSON-LD)
+        original_price = None
+        if json_ld_data and "offers" in json_ld_data:
+            offers = json_ld_data["offers"]
+            if isinstance(offers, dict):
+                list_price = offers.get("highPrice")
+                if list_price and str(list_price) != str(offers.get("lowPrice", "")):
+                    original_price = f"R${list_price}"
+
+        # Extract SKU
+        sku = None
+        if json_ld_data:
+            sku = json_ld_data.get("sku")
+        if not sku:
+            current_url = self.page.url
+            if "_" in current_url:
+                sku_match = re.search(r'-(\d{8})_', current_url)
+                if sku_match:
+                    sku = sku_match.group(1)
+
+        # Extract brand
+        brand = None
+        if json_ld_data and "brand" in json_ld_data:
+            brand_data = json_ld_data["brand"]
+            if isinstance(brand_data, dict):
+                brand = brand_data.get("name")
+            elif isinstance(brand_data, str):
+                brand = brand_data
+
+        # Extract description from JSON-LD
+        description = None
+        if json_ld_data:
+            desc = json_ld_data.get("description", "")
+            # Clean HTML tags from description
+            description = re.sub(r'<[^>]+>', ' ', desc)
+            description = re.sub(r'&nbsp;', ' ', description)
+            description = re.sub(r'\s+', ' ', description).strip()
+
+        # Extract all images
+        images = []
+        if json_ld_data and "image" in json_ld_data:
+            img_data = json_ld_data["image"]
+            if isinstance(img_data, list):
+                images = img_data
+            elif isinstance(img_data, str):
+                images = [img_data]
+
+        # Fallback: get images from page
+        if not images:
+            all_imgs = self.page.query_selector_all("img[src*='static.riachuelo']")
+            for img in all_imgs:
+                src = img.get_attribute("src")
+                if src and src not in images and "portrait" in src:
+                    images.append(src)
+
+        # Extract available sizes from JSON-LD variants
+        sizes = []
+        if json_ld_data and "hasVariant" in json_ld_data:
+            variants = json_ld_data["hasVariant"]
+            if isinstance(variants, list):
+                for variant in variants:
+                    size = variant.get("size")
+                    if size and size not in sizes:
+                        sizes.append(size)
+                # Sort sizes numerically if possible
+                try:
+                    sizes = sorted(sizes, key=lambda x: int(x))
+                except ValueError:
+                    sizes = sorted(sizes)
+
+        # Extract color
+        color = None
+        if json_ld_data:
+            color = json_ld_data.get("color")
+        if not color and name and " - " in name:
+            color = name.split(" - ")[-1].strip()
+
+        # Extract category
+        category = None
+        if json_ld_data and "category" in json_ld_data:
+            category = json_ld_data["category"]
+
+        # Extract material from description
+        material = None
+        if description:
+            # Look for composition pattern like "Poliéster 90%; Elastano 10%"
+            # Match pattern: Material percentage; Material percentage (can have multiple)
+            material_match = re.search(r'([A-Za-záéíóúãõâêîôûç\s]+\d+%(?:;\s*[A-Za-záéíóúãõâêîôûç\s]+\d+%)*)', description)
+            if material_match:
+                material = material_match.group(1).strip()
+
+        # Build specifications from various sources
+        specifications = {}
+        if json_ld_data:
+            if "gtin13" in json_ld_data:
+                specifications["GTIN"] = json_ld_data["gtin13"]
+            if "mpn" in json_ld_data:
+                specifications["MPN"] = json_ld_data["mpn"]
+
+        return Product(
+            name=name or "Unknown Product",
+            price=price,
+            original_price=original_price,
+            description=description,
+            image_url=images[0] if images else None,
+            images=images if images else None,
+            url=self.page.url,
+            sku=sku,
+            brand=brand,
+            category=category,
+            color=color,
+            sizes=sizes if sizes else None,
+            material=material,
+            specifications=specifications if specifications else None,
+        )
+
+    def _extract_json_ld(self) -> Optional[dict]:
+        """Extract JSON-LD structured data from the page."""
+        try:
+            # Find all JSON-LD script tags
+            scripts = self.page.query_selector_all('script[type="application/ld+json"]')
+            for script in scripts:
+                content = script.inner_text()
+                if content:
+                    data = json.loads(content)
+                    # Look for Product or ProductGroup type
+                    if isinstance(data, dict):
+                        dtype = data.get("@type")
+                        if dtype in ["Product", "ProductGroup"]:
+                            return data
+                        # Check for @graph structure
+                        if "@graph" in data:
+                            for item in data["@graph"]:
+                                if item.get("@type") in ["Product", "ProductGroup"]:
+                                    return item
+                    elif isinstance(data, list):
+                        for item in data:
+                            if isinstance(item, dict) and item.get("@type") in ["Product", "ProductGroup"]:
+                                return item
+        except Exception as e:
+            print(f"Error extracting JSON-LD: {e}")
+        return None
 
     def _extract_search_results(self) -> List[Product]:
         """Extract product information from search results page."""
@@ -303,12 +486,15 @@ def main():
     print(f"\nSearching for product: {product_code}")
 
     with RiachueloScraper(headless=True) as scraper:
-        products = scraper.search_product(product_code)
+        product = scraper.search_and_get_product(product_code)
 
-        print(f"\nFound {len(products)} product(s):")
-        for i, product in enumerate(products, 1):
-            print(f"\n--- Product {i} ---")
+        if product:
+            print("\n" + "=" * 40)
+            print("PRODUCT DETAILS")
+            print("=" * 40)
             print(json.dumps(asdict(product), indent=2, ensure_ascii=False))
+        else:
+            print("\nNo product found.")
 
 
 if __name__ == "__main__":
