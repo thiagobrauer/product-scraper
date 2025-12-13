@@ -24,6 +24,7 @@
 # TODO: Implement data validation and cleaning for scraped data
 # TODO: Add support for scraping from mobile versions of e-commerce sites
 # TODO: Consider using NoSQL databases for storing scraped data
+# TODO: Force AI to return portuguese only in the JSON response
 
 """
 E-commerce Web Scraper Orchestrator

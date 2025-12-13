@@ -7,6 +7,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://scraper:scraper123@db:5432/scraper_db
       - PYTHONUNBUFFERED=1
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     depends_on:
       db:
         condition: service_healthy
@@ -16,6 +17,26 @@ services:
       - scraper-network
     stdin_open: true
     tty: true
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: scraper-api
+    environment:
+      - DATABASE_URL=postgresql://scraper:scraper123@db:5432/scraper_db
+      - PYTHONUNBUFFERED=1
+      - API_PORT=8000
+    command: ["python", "-m", "uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./:/app
+    networks:
+      - scraper-network
 
   db:
     image: postgres:16-alpine
