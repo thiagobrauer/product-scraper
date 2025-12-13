@@ -21,7 +21,9 @@ class Product:
         sizes: Optional[List[str]] = None,
         material: Optional[str] = None,
         specifications: Optional[Dict[str, str]] = None,
+        id: Optional[int] = None,
     ):
+        self._id = id
         self._name = name
         self._price = price
         self._original_price = original_price
@@ -37,6 +39,15 @@ class Product:
         self._material = material
         self._specifications = specifications or {}
         self._enriched_data: Optional[Dict[str, Any]] = None
+
+    @property
+    def id(self) -> Optional[int]:
+        return self._id
+
+    def set_id(self, id: int) -> "Product":
+        """Set the database ID after saving."""
+        self._id = id
+        return self
 
     @property
     def name(self) -> str:
@@ -110,6 +121,7 @@ class Product:
     def to_dict(self) -> Dict[str, Any]:
         """Convert product to dictionary representation."""
         return {
+            "id": self._id,
             "name": self._name,
             "price": self._price,
             "original_price": self._original_price,

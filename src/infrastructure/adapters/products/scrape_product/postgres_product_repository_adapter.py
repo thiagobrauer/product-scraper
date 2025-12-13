@@ -40,11 +40,11 @@ class PostgresProductRepositoryAdapter:
                 INSERT INTO products (
                     sku, name, price, original_price, description,
                     image_url, images, url, brand, category,
-                    color, sizes, material, specifications, enriched_data
+                    color, sizes, material, specifications
                 ) VALUES (
                     :sku, :name, :price, :original_price, :description,
                     :image_url, :images, :url, :brand, :category,
-                    :color, :sizes, :material, :specifications, :enriched_data
+                    :color, :sizes, :material, :specifications
                 )
                 ON CONFLICT (sku) DO UPDATE SET
                     name = EXCLUDED.name,
@@ -59,12 +59,11 @@ class PostgresProductRepositoryAdapter:
                     color = EXCLUDED.color,
                     sizes = EXCLUDED.sizes,
                     material = EXCLUDED.material,
-                    specifications = EXCLUDED.specifications,
-                    enriched_data = EXCLUDED.enriched_data
+                    specifications = EXCLUDED.specifications
                 RETURNING id
             """)
 
-            conn.execute(
+            result = conn.execute(
                 query,
                 {
                     "sku": product.sku,
@@ -85,13 +84,11 @@ class PostgresProductRepositoryAdapter:
                         if product.specifications
                         else None
                     ),
-                    "enriched_data": (
-                        json.dumps(product.enriched_data)
-                        if product.enriched_data
-                        else None
-                    ),
                 },
             )
+            row = result.fetchone()
+            if row:
+                product.set_id(row[0])
             conn.commit()
 
         return product
@@ -130,7 +127,8 @@ class PostgresProductRepositoryAdapter:
 
     def _row_to_product(self, row) -> Product:
         """Convert a database row to a Product entity."""
-        product = Product(
+        return Product(
+            id=row.id,
             name=row.name,
             price=row.price,
             original_price=row.original_price,
@@ -146,8 +144,3 @@ class PostgresProductRepositoryAdapter:
             material=row.material,
             specifications=row.specifications if row.specifications else None,
         )
-
-        if row.enriched_data:
-            product.set_enriched_data(row.enriched_data)
-
-        return product

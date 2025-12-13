@@ -1,3 +1,30 @@
+# TODO: Add command-line arguments for product code and other options
+# TODO: Implement more robust error handling and logging
+# TODO: Extend to support multiple e-commerce sites
+# TODO: Add unit and integration tests
+# TODO: Consider asynchronous implementation for better performance
+# TODO: Implement retry logic for network requests
+# TODO: Add configuration management for different environments
+# TODO: Integrate with a message queue for processing multiple products
+# TODO: Implement caching for repeated product queries
+# TODO: Add support for proxy rotation to avoid IP blocking
+# TODO: Enhance data extraction to include more product details
+# TODO: Implement rate limiting to avoid overwhelming the target site
+# TODO: Add functionality to export scraped data to different formats (CSV, XML, etc.)
+# TODO: Implement a scheduling mechanism for periodic scraping
+# TODO: Add user authentication handling if required by the e-commerce site
+# TODO: Consider using a headless browser farm for large-scale scraping
+# TODO: Implement monitoring and alerting for scraper failures
+# TODO: Add documentation for setup and usage instructions
+# TODO: Explore machine learning techniques for better data extraction
+# TODO: Implement a GUI for easier interaction with the scraper
+# TODO: Add localization support for scraping from different regions
+# TODO: Optimize performance for large-scale scraping tasks
+# TODO: Ensure compliance with legal and ethical guidelines for web scraping
+# TODO: Implement data validation and cleaning for scraped data
+# TODO: Add support for scraping from mobile versions of e-commerce sites
+# TODO: Consider using NoSQL databases for storing scraped data
+
 """
 E-commerce Web Scraper Orchestrator
 
@@ -10,7 +37,7 @@ create a new adapter implementing the EcommerceGateway protocol.
 
 import csv
 import os
-from typing import List
+from typing import List, Optional
 
 from playwright.sync_api import sync_playwright
 
@@ -23,6 +50,15 @@ from src.core.modules.products.scrape_product.use_case.scrape_product_use_case i
 from src.core.modules.products.scrape_product.responses.scrape_product_success import (
     ScrapeProductSuccess,
 )
+from src.core.modules.products.enrich_product.inputs.enrich_product_input import (
+    EnrichProductInput,
+)
+from src.core.modules.products.enrich_product.use_case.enrich_product_use_case import (
+    EnrichProductUseCase,
+)
+from src.core.modules.products.enrich_product.responses.enrich_product_success import (
+    EnrichProductSuccess,
+)
 from src.infrastructure.adapters.products.scrape_product.playwright_browser_adapter import (
     PlaywrightBrowserAdapter,
 )
@@ -31,6 +67,12 @@ from src.infrastructure.adapters.products.scrape_product.riachuelo_ecommerce_ada
 )
 from src.infrastructure.adapters.products.scrape_product.postgres_product_repository_adapter import (
     PostgresProductRepositoryAdapter,
+)
+from src.infrastructure.adapters.products.enrich_product.claude_ai_adapter import (
+    ClaudeAIAdapter,
+)
+from src.infrastructure.adapters.products.enrich_product.postgres_enrichment_repository_adapter import (
+    PostgresEnrichmentRepositoryAdapter,
 )
 from src.infrastructure.adapters.console_logger_adapter import ConsoleLoggerAdapter
 
@@ -130,14 +172,44 @@ def get_product_repository(logger):
     return None
 
 
-def scrape_products(queries: List[str], use_case: ScrapeProductUseCase) -> dict:
+def get_enrichment_use_case(logger, product_repository) -> Optional[EnrichProductUseCase]:
+    """Create enrichment use case if Claude API key is configured."""
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        logger.info("No ANTHROPIC_API_KEY configured, skipping AI enrichment")
+        return None
+
+    logger.info("Claude API configured, enabling AI enrichment")
+
+    # Create Claude AI adapter
+    ai_adapter = ClaudeAIAdapter(api_key=api_key)
+
+    # Create enrichment repository if database is available
+    enrichment_repository = None
+    if product_repository:
+        enrichment_repository = PostgresEnrichmentRepositoryAdapter(
+            engine=product_repository.engine
+        )
+
+    return EnrichProductUseCase(
+        ai_gateway=ai_adapter,
+        log=logger,
+        enrichment_repository=enrichment_repository,
+    )
+
+
+def scrape_products(
+    queries: List[str],
+    scrape_use_case: ScrapeProductUseCase,
+    enrich_use_case: Optional[EnrichProductUseCase] = None,
+) -> dict:
     """
-    Scrape multiple products and return results summary.
+    Scrape multiple products and optionally enrich them with AI.
 
     Returns:
-        Dictionary with 'success' and 'failed' lists
+        Dictionary with 'success', 'failed', and 'enriched' lists
     """
-    results = {"success": [], "failed": []}
+    results = {"success": [], "failed": [], "enriched": []}
 
     total = len(queries)
     for i, query in enumerate(queries, 1):
@@ -150,7 +222,7 @@ def scrape_products(queries: List[str], use_case: ScrapeProductUseCase) -> dict:
             save_debug_files=False,
         )
 
-        response = use_case.apply(input_data)
+        response = scrape_use_case.apply(input_data)
 
         if isinstance(response, ScrapeProductSuccess):
             product = response.product
@@ -160,8 +232,26 @@ def scrape_products(queries: List[str], use_case: ScrapeProductUseCase) -> dict:
                 "sku": product.sku,
                 "price": product.price,
             })
-            print(f"\n✓ Success: {product.name}")
+            print(f"\n✓ Scraped: {product.name}")
             print(f"  SKU: {product.sku} | Price: {product.price}")
+
+            # Enrich product with AI if available
+            if enrich_use_case:
+                print(f"\n  Enriching with AI...")
+                enrich_input = EnrichProductInput(
+                    product_data=product.to_dict(),
+                    product_id=product.id,  # Pass DB ID for saving enrichment
+                )
+                enrich_response = enrich_use_case.apply(enrich_input)
+
+                if isinstance(enrich_response, EnrichProductSuccess):
+                    enrichment = enrich_response.enrichment
+                    results["enriched"].append(query)
+                    print(f"  ✓ Enriched successfully")
+                    print(f"    SEO Title: {enrichment.content.seo_title}")
+                    print(f"    Keywords: {', '.join(enrichment.categorization.search_keywords[:3])}...")
+                else:
+                    print(f"  ✗ Enrichment failed: {enrich_response.message}")
         else:
             results["failed"].append({
                 "query": query,
@@ -182,14 +272,16 @@ def print_summary(results: dict):
 
     success_count = len(results["success"])
     failed_count = len(results["failed"])
+    enriched_count = len(results.get("enriched", []))
     total = success_count + failed_count
 
-    print(f"\nTotal: {total} | Success: {success_count} | Failed: {failed_count}")
+    print(f"\nTotal: {total} | Scraped: {success_count} | Failed: {failed_count} | Enriched: {enriched_count}")
 
     if results["success"]:
-        print("\n✓ SUCCESSFUL:")
+        print("\n✓ SCRAPED:")
         for item in results["success"]:
-            print(f"  - {item['query']}: {item['name']} ({item['price']})")
+            enriched_marker = " [AI]" if item["query"] in results.get("enriched", []) else ""
+            print(f"  - {item['query']}: {item['name']} ({item['price']}){enriched_marker}")
 
     if results["failed"]:
         print("\n✗ FAILED:")
@@ -226,6 +318,7 @@ def main():
     # Create infrastructure dependencies
     logger = ConsoleLoggerAdapter()
     product_repository = get_product_repository(logger)
+    enrich_use_case = get_enrichment_use_case(logger, product_repository)
 
     with sync_playwright() as playwright:
         browser, context = create_browser_context(playwright)
@@ -238,15 +331,15 @@ def main():
             # Create platform-specific e-commerce adapter
             ecommerce_adapter = RiachueloEcommerceAdapter(browser_adapter)
 
-            # Create use case
-            use_case = ScrapeProductUseCase(
+            # Create scrape use case
+            scrape_use_case = ScrapeProductUseCase(
                 ecommerce_gateway=ecommerce_adapter,
                 log=logger,
                 product_repository=product_repository,
             )
 
-            # Scrape all selected products
-            results = scrape_products(queries, use_case)
+            # Scrape all selected products (with optional enrichment)
+            results = scrape_products(queries, scrape_use_case, enrich_use_case)
 
             # Print summary
             print_summary(results)
