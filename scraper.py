@@ -8,6 +8,7 @@ The scraper is platform-agnostic - to add support for a new e-commerce site,
 create a new adapter implementing the EcommerceGateway protocol.
 """
 
+import argparse
 import csv
 import os
 from typing import List, Optional
@@ -262,18 +263,39 @@ def print_summary(results: dict):
             print(f"  - {item['query']}: {item['error']}")
 
 
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="E-commerce product scraper with AI enrichment"
+    )
+    parser.add_argument(
+        "-f", "--file",
+        type=str,
+        default=SEARCH_TERMS_FILE,
+        help=f"Path to CSV file with search terms (default: {SEARCH_TERMS_FILE})"
+    )
+    return parser.parse_args()
+
+
 def main():
     """Main entry point for the scraper."""
+    args = parse_args()
+
     print("=" * 50)
     print("E-COMMERCE PRODUCT SCRAPER")
     print("=" * 50)
 
+    # Ask for CSV file path (use command-line arg as default, or SEARCH_TERMS_FILE)
+    default_file = args.file
+    file_input = input(f"\nCSV file path [{default_file}]: ").strip()
+    csv_file = file_input if file_input else default_file
+
     # Load search terms from CSV
-    search_terms = load_search_terms()
+    search_terms = load_search_terms(csv_file)
 
     if not search_terms:
-        print("\nNo search terms found. Please add terms to search-terms.csv")
-        print("or enter a custom search term.")
+        print(f"\nNo search terms found in {csv_file}.")
+        print("Enter a custom search term or check the file path.")
         custom = input("\nEnter a search term (or 'q' to quit): ").strip()
         if not custom or custom.lower() == "q":
             print("Goodbye!")

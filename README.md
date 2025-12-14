@@ -188,6 +188,51 @@ Marketing and SEO content:
 | `marketing_highlights` | Key selling points as bullet points |
 | `image_alt_text` | Accessible alt text for product images |
 
+## Using Custom Search Terms
+
+The scraper reads product codes from a CSV file. By default, it uses `search-terms.csv`, but you can use your own file.
+
+### Converting Excel to CSV
+
+If you have product codes in an Excel file (.xlsx), convert it to CSV:
+
+1. Open your Excel file
+2. Go to **File > Save As**
+3. Choose **CSV (Comma delimited) (*.csv)** as the format
+4. Save the file in the project root folder
+
+### CSV Format
+
+The CSV file should have a header row and product codes in the first column:
+
+```csv
+search_term
+15247848
+15247830
+15727475
+```
+
+### Running with a Custom File
+
+When you run the scraper, it will prompt you for the CSV file path:
+
+```
+==================================================
+E-COMMERCE PRODUCT SCRAPER
+==================================================
+
+CSV file path [search-terms.csv]: my-products.csv
+```
+
+- Press **Enter** to use the default `search-terms.csv`
+- Type a filename (e.g., `my-products.csv`) to use a different file
+
+You can also specify the file via command-line argument:
+
+```bash
+python scraper.py -f my-products.csv
+```
+
 ## Local Development
 
 ### Setup
