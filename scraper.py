@@ -1,31 +1,3 @@
-# TODO: Add command-line arguments for product code and other options
-# TODO: Implement more robust error handling and logging
-# TODO: Extend to support multiple e-commerce sites
-# TODO: Add unit and integration tests
-# TODO: Consider asynchronous implementation for better performance
-# TODO: Implement retry logic for network requests
-# TODO: Add configuration management for different environments
-# TODO: Integrate with a message queue for processing multiple products
-# TODO: Implement caching for repeated product queries
-# TODO: Add support for proxy rotation to avoid IP blocking
-# TODO: Enhance data extraction to include more product details
-# TODO: Implement rate limiting to avoid overwhelming the target site
-# TODO: Add functionality to export scraped data to different formats (CSV, XML, etc.)
-# TODO: Implement a scheduling mechanism for periodic scraping
-# TODO: Add user authentication handling if required by the e-commerce site
-# TODO: Consider using a headless browser farm for large-scale scraping
-# TODO: Implement monitoring and alerting for scraper failures
-# TODO: Add documentation for setup and usage instructions
-# TODO: Explore machine learning techniques for better data extraction
-# TODO: Implement a GUI for easier interaction with the scraper
-# TODO: Add localization support for scraping from different regions
-# TODO: Optimize performance for large-scale scraping tasks
-# TODO: Ensure compliance with legal and ethical guidelines for web scraping
-# TODO: Implement data validation and cleaning for scraped data
-# TODO: Add support for scraping from mobile versions of e-commerce sites
-# TODO: Consider using NoSQL databases for storing scraped data
-# TODO: Force AI to return portuguese only in the JSON response
-
 """
 E-commerce Web Scraper Orchestrator
 
